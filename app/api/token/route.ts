@@ -5,8 +5,8 @@ import {
 } from "livekit-server-sdk";
 import { NextResponse } from "next/server";
 
-const API_KEY = process.env.NEXT_PUBLIC_LIVEKIT_API_KEY;
-const API_SECRET = process.env.NEXT_PUBLIC_LIVEKIT_API_SECRET;
+const API_KEY = process.env.LIVEKIT_API_KEY;
+const API_SECRET = process.env.LIVEKIT_API_SECRET;
 const LIVEKIT_URL = process.env.NEXT_PUBLIC_LIVEKIT_URL;
 
 export type ConnectionDetails = {
