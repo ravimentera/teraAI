@@ -27,8 +27,8 @@ export async function GET() {
     }
 
     // Generate participant token
-    const participantIdentity = `voice_assistant_user_${Math.floor(Math.random() * 10_000)}`;
-    const roomName = `voice_assistant_room_${Math.floor(Math.random() * 10_000)}`;
+    const participantIdentity = `user_${Math.floor(Math.random() * 10_000)}`;
+    const roomName = "mentera-voice-poc";
     const participantToken = await createParticipantToken(
       { identity: participantIdentity },
       roomName,
@@ -39,6 +39,7 @@ export async function GET() {
       identity: participantIdentity,
       accessToken: participantToken,
     };
+    console.log('[DEBUG-SERVER] Token generated for room:', roomName, 'identity:', participantIdentity);
     return NextResponse.json(data);
   } catch (error) {
     if (error instanceof Error) {

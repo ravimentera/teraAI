@@ -2,7 +2,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { BrainProvider, ConversationContext } from "../types";
-import { DEFAULT_PROMPT } from "../prompt";
+import { VOICE_PROMPT } from "../prompt";
 
 export class PromptBrain implements BrainProvider {
   private anthropic = new Anthropic({
@@ -10,7 +10,7 @@ export class PromptBrain implements BrainProvider {
   });
 
   getSystemPrompt() {
-    return DEFAULT_PROMPT;
+    return VOICE_PROMPT;
   }
 
   async *chat(message: string, context: ConversationContext) {
@@ -22,17 +22,16 @@ export class PromptBrain implements BrainProvider {
       system: systemPrompt,
       messages: [
         ...context.conversationHistory.map((m) => ({
-          role: m.role === "assistant" ? "assistant" : "user",
+          role: (m.role === "assistant" ? "assistant" : "user") as "assistant" | "user",
           content: m.content,
         })),
-        { role: "user", content: message },
+        { role: "user" as const, content: message },
       ],
     });
 
     for await (const chunk of stream) {
-      if (chunk.type === "content_block_delta") {
-        const text = chunk.delta?.text;
-        if (text) yield text;
+      if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
+        yield chunk.delta.text;
       }
     }
   }
