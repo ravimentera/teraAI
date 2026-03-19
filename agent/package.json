@@ -2,27 +2,29 @@
   "name": "agent",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "agent.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "tsx agent.ts"
+    "dev": "tsx agent.ts dev"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "module",
+  "type": "commonjs",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
-    "@livekit/agents": "^1.0.51",
-    "@livekit/agents-plugin-cartesia": "^1.0.51",
-    "@livekit/agents-plugin-deepgram": "^1.0.51",
-    "@livekit/agents-plugin-openai": "^1.0.51",
-    "@livekit/agents-plugin-silero": "^1.0.51",
+    "@livekit/agents": "1.0.51",
+    "@livekit/agents-plugin-cartesia": "1.0.51",
+    "@livekit/agents-plugin-deepgram": "1.0.51",
+    "@livekit/agents-plugin-openai": "1.0.51",
+    "@livekit/agents-plugin-silero": "1.0.51",
     "@livekit/rtc-node": "^0.13.24",
-    "dotenv": "^17.3.1",
-    "openai": "^6.32.0",
-    "tslib": "^2.8.1",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "dotenv": "^16.4.7",
+    "livekit-server-sdk": "^2.14.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
   }
 }

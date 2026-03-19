@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import path from 'path';
 
-dotenv.config({ path: path.join(import.meta.dirname, '../.env.local') });
+dotenv.config({ path: path.join(__dirname, '../.env.local') });
 
 const url = process.env.NEXT_PUBLIC_LIVEKIT_URL || "";
 const apiKey = process.env.LIVEKIT_API_KEY || "";

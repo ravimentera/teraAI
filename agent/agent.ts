@@ -1,9 +1,8 @@
-// @ts-nocheck
 import {
   cli,
   defineAgent,
   llm,
-  pipeline,
+  voice,
   WorkerOptions,
 } from '@livekit/agents';
 import * as deepgram from '@livekit/agents-plugin-deepgram';
@@ -14,20 +13,20 @@ import path from 'path';
 import { createBrainProvider } from '../brain';
 
 // Load env vars
-dotenv.config({ path: path.join(import.meta.dirname, '../.env.local') });
+dotenv.config({ path: path.join(__dirname, '../.env.local') });
 
 // Explicitly set LIVEKIT_URL for the CLI/Worker
 if (process.env.NEXT_PUBLIC_LIVEKIT_URL) {
   process.env.LIVEKIT_URL = process.env.NEXT_PUBLIC_LIVEKIT_URL;
 }
 
-console.log('[Agent] Mode: CommonJS / Pre-load');
+console.log('[Agent] Mode: CommonJS / Refactored');
 console.log('[Agent] Target URL:', process.env.LIVEKIT_URL);
 
 // Globals to be pre-loaded
 const brain = createBrainProvider('tera-dental');
 let systemPrompt = "";
-let vad: any = null;
+let vadModel: any = null;
 
 // Pre-load logic to avoid job-entry timeouts
 async function preload() {
@@ -36,7 +35,7 @@ async function preload() {
         systemPrompt = await brain.getSystemPrompt();
         console.log('[Agent] System prompt length:', systemPrompt.length);
         console.log('[Agent] Pre-loading Silero VAD...');
-        vad = await silero.VAD.load();
+        vadModel = await silero.VAD.load();
         console.log('[Agent] VAD Model Loaded');
         console.log('[Agent] Pre-load complete.');
     } catch (err) {
@@ -44,55 +43,48 @@ async function preload() {
     }
 }
 
-const anthropicKey = process.env.ANTHROPIC_API_KEY;
-if (!anthropicKey) {
-  console.error("❌ ANTHROPIC_API_KEY is missing from .env.local!");
+class AnthropicLLMStream extends llm.LLMStream {
+  constructor(llm: llm.LLM, chatCtx: llm.ChatContext, connOptions: any) {
+    super(llm, { chatCtx, connOptions });
+  }
+
+  async run() {
+    try {
+      const chatCtx = this.chatCtx;
+      const lastItem = chatCtx.items[chatCtx.items.length - 1];
+      const textMsg = (lastItem instanceof llm.ChatMessage) ? lastItem.textContent || "Hello" : "Hello";
+      
+      const context = {
+        conversationHistory: chatCtx.items.slice(0, -1).map((m: any) => ({
+          role: (m.role || 'user') as "user" | "assistant" | "system",
+          content: m.textContent || ""
+        })),
+      };
+
+      for await (const chunk of brain.chat(textMsg, context)) {
+        if (chunk) {
+          (this as any).output.push({
+            id: crypto.randomUUID(),
+            delta: {
+              content: chunk,
+              role: 'assistant'
+            }
+          });
+        }
+      }
+    } catch (err) {
+      console.error("[AnthropicLLM Error]", err);
+    }
+  }
 }
 
 class AnthropicLLM extends llm.LLM {
-  label = 'anthropic_llm';
+  label(): string {
+    return 'anthropic_llm';
+  }
 
-  chat({ chatCtx }: { chatCtx: llm.ChatContext }): llm.LLMStream {
-    console.log('[AnthropicLLM] Chat requested. Msg count:', chatCtx.messages.length);
-    const stream = new llm.LLMStream(this, chatCtx);
-    
-    (async () => {
-      try {
-        const lastMsg = chatCtx.messages[chatCtx.messages.length - 1];
-        const textMsg = typeof lastMsg.content === 'string' ? lastMsg.content : "Hello";
-        console.log('[AnthropicLLM] User said:', textMsg);
-        
-        const context = {
-          conversationHistory: chatCtx.messages.slice(0, -1).map(m => ({
-            role: m.role as "user" | "assistant",
-            content: typeof m.content === 'string' ? m.content : ""
-          })),
-        };
-
-        let firstChunk = true;
-        for await (const chunk of brain.chat(textMsg, context)) {
-          if (chunk) {
-            console.log('[AnthropicLLM] Chunk:', chunk);
-            stream.push({
-              choices: [{
-                delta: {
-                  content: chunk,
-                  role: firstChunk ? 'assistant' : undefined
-                }
-              }]
-            });
-            firstChunk = false;
-          }
-        }
-        console.log('[AnthropicLLM] Stream complete');
-        stream.push(null);
-      } catch (err) {
-        console.error("[AnthropicLLM Error]", err);
-        stream.push(null);
-      }
-    })();
-
-    return stream;
+  chat({ chatCtx, connOptions }: { chatCtx: llm.ChatContext, connOptions: any }): llm.LLMStream {
+    return new AnthropicLLMStream(this, chatCtx, connOptions);
   }
 }
 
@@ -100,84 +92,79 @@ const agentDef = defineAgent({
   entry: async (ctx) => {
     console.log('[Job] Starting entry (Job ID):', ctx.job.id);
     
-    // Ensure pre-loaded resources are ready
-    if (!systemPrompt || !vad) {
+    if (!systemPrompt || !vadModel) {
         console.log('[Agent] Resources not ready, waiting...');
         await preload();
     }
 
-    // Connect to room
     try {
-      console.log('[Agent] Connecting to room as agent...');
+      console.log('[Agent] Connecting to room...');
       await ctx.connect();
       console.log('[Agent] Connected to room:', ctx.room.name);
-      console.log('[Agent] Local Participant Identity:', ctx.room.localParticipant.identity);
     } catch (err) {
-      console.error('[Agent] Failed to connect to room:', err);
+      console.error('[Agent] Failed to connect:', err);
       return;
     }
 
-    // Initialize plugins inside entry to ensure logger is ready
     const tts = new cartesia.TTS({ 
-      apiKey: process.env.CARTESIA_API_KEY,
+      apiKey: process.env.CARTESIA_API_KEY!,
       voice: "694f9ed8-eaee-4f51-a9f4-539420042cd0" 
     });
     const stt = new deepgram.STT({ 
-      apiKey: process.env.DEEPGRAM_API_KEY 
+      apiKey: process.env.DEEPGRAM_API_KEY!
     });
     const llm_engine = new AnthropicLLM();
+    const vad = vadModel;
 
-    // Provide the Brain Prompt
-    console.log('[Agent] Creating ChatContext...');
-    const chatCtx = new llm.ChatContext().append({
+    const chatCtx = new llm.ChatContext();
+    chatCtx.addMessage({
       role: 'system',
-      text: systemPrompt,
+      content: systemPrompt,
     });
 
-    console.log('[Agent] Creating VoicePipelineAgent...');
-    const agent = new pipeline.VoicePipelineAgent(
-      llm_engine,
+    const agent = new voice.Agent({
+      instructions: systemPrompt,
+      llm: llm_engine,
       tts,
       stt,
-      { 
-        chatCtx,
+      vad,
+      chatCtx,
+    });
+
+    const session = new voice.AgentSession({
+        stt,
+        tts,
+        llm: llm_engine,
         vad,
-      }
-    );
+    });
 
-    // Diagnostic event listeners
-    agent.on('userStartedSpeaking', () => console.log('[Agent] User started speaking'));
-    agent.on('userStoppedSpeaking', () => console.log('[Agent] User stopped speaking'));
-    agent.on('agentStartedSpeaking', () => console.log('[Agent] Agent started speaking'));
-    agent.on('agentStoppedSpeaking', () => console.log('[Agent] Agent stopped speaking'));
+    session.on(voice.AgentSessionEventTypes.AgentStateChanged, (ev: any) => console.log('[Agent] State:', ev.state));
+    session.on(voice.AgentSessionEventTypes.Error, (ev: any) => console.error('[Agent] Error:', ev.error));
 
-    // Start listening
-    console.log('[Agent] Starting pipeline...');
+    console.log('[Agent] Starting session...');
     try {
-      agent.start(ctx.room);
-      console.log('[Agent] Pipeline started successfully');
+      await session.start({ agent, room: ctx.room });
+      console.log('[Agent] Session started');
     } catch (err) {
-      console.error('[Agent] Failed to start pipeline:', err);
+      console.error('[Agent] Failed to start session:', err);
+      return;
     }
 
     // Initial greeting
-    console.log('[Agent] Waiting for session stabilize (2s)...');
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    console.log('[Agent] Sending initial greeting...');
+    await new Promise(resolve => setTimeout(resolve, 1000));
     try {
-      await agent.say("Hello. I'm Tera. How can I help you today?", true);
-      console.log('[Agent] Greeting sent successfully');
+      session.say("Hello. I'm Tera. How can I help you today?");
     } catch (err) {
-      console.error('[Agent] Failed to say greeting:', err);
+      console.error('[Agent] Greeting failed:', err);
     }
   },
 });
 
-// Start pre-loading immediately
+export default agentDef;
+
 preload().then(() => {
     cli.runApp(new WorkerOptions({ 
-      agent: agentDef,
-      wsUrl: "wss://shell-poc-45149qll.livekit.cloud",
+      agent: path.resolve(__filename),
+      wsURL: process.env.LIVEKIT_URL || "wss://shell-poc-45149qll.livekit.cloud",
     }));
 });
