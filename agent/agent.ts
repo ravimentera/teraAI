@@ -30,61 +30,80 @@ let vadModel: any = null;
 
 // Pre-load logic to avoid job-entry timeouts
 async function preload() {
-    try {
-        console.log('[Agent] Pre-loading system prompt...');
-        systemPrompt = await brain.getSystemPrompt();
-        console.log('[Agent] System prompt length:', systemPrompt.length);
-        console.log('[Agent] Pre-loading Silero VAD...');
-        vadModel = await silero.VAD.load();
-        console.log('[Agent] VAD Model Loaded');
-        console.log('[Agent] Pre-load complete.');
-    } catch (err) {
-        console.error('[Agent] Pre-load failed:', err);
-    }
+  try {
+    console.log('[Agent] Pre-loading system prompt...');
+    systemPrompt = await brain.getSystemPrompt();
+    console.log('[Agent] System prompt length:', systemPrompt.length);
+    console.log('[Agent] Pre-loading Silero VAD...');
+    vadModel = await silero.VAD.load();
+    console.log('[Agent] VAD Model Loaded');
+    console.log('[Agent] Pre-load complete.');
+  } catch (err) {
+    console.error('[Agent] Pre-load failed:', err);
+  }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Custom Anthropic LLM — correctly uses this.queue (NOT this.output)
+// The SDK's monitorMetrics() internally bridges: queue → output → consumer
+// Calling output.close() directly would bypass metrics and hang the session.
+// ─────────────────────────────────────────────────────────────────────────────
 class AnthropicLLMStream extends llm.LLMStream {
-  constructor(llm: llm.LLM, chatCtx: llm.ChatContext, connOptions: any) {
+  constructor(llm: llm.LLM, chatCtx: llm.ChatContext, connOptions: any, private onToken?: (t: string) => void) {
     super(llm, { chatCtx, connOptions });
   }
 
   async run() {
     try {
       const chatCtx = this.chatCtx;
-      const lastItem = chatCtx.items[chatCtx.items.length - 1];
-      const textMsg = (lastItem instanceof llm.ChatMessage) ? lastItem.textContent || "Hello" : "Hello";
-      
-      const context = {
-        conversationHistory: chatCtx.items.slice(0, -1).map((m: any) => ({
-          role: (m.role || 'user') as "user" | "assistant" | "system",
-          content: m.textContent || ""
-        })),
-      };
+      if (!chatCtx || !chatCtx.items) return;
 
-      for await (const chunk of brain.chat(textMsg, context)) {
-        if (chunk) {
-          (this as any).output.push({
-            id: crypto.randomUUID(),
-            delta: {
-              content: chunk,
-              role: 'assistant'
-            }
-          });
+      const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+      for (const item of chatCtx.items) {
+        if (!(item instanceof llm.ChatMessage)) continue;
+        const role = item.role as string;
+        const text = item.textContent || '';
+        if (!text.trim()) continue;
+        if (role === 'user' || role === 'assistant') {
+          messages.push({ role: role as 'user' | 'assistant', content: text });
         }
+      }
+
+      if (messages.length === 0 || messages[messages.length - 1].role !== 'user') {
+        messages.push({ role: 'user', content: 'Hello' });
+      }
+
+      const lastUserMsg = messages[messages.length - 1]?.content || 'Hello';
+
+      for await (const chunk of brain.chat(lastUserMsg, { conversationHistory: messages.slice(0, -1) })) {
+        if (!chunk || !chunk.trim()) continue;
+        console.log("[Agent] Chunk:", chunk);
+        
+        // Notify callback (for direct publish)
+        this.onToken?.(chunk);
+
+        (this as any).queue.put({
+          id: crypto.randomUUID(),
+          delta: { content: chunk, role: 'assistant' }
+        });
       }
     } catch (err) {
       console.error("[AnthropicLLM Error]", err);
+    } finally {
+      (this as any).queue.close();
     }
   }
 }
 
 class AnthropicLLM extends llm.LLM {
-  label(): string {
-    return 'anthropic_llm';
+  constructor(private onToken?: (t: string) => void) {
+    super();
   }
 
+  label(): string { return 'anthropic_llm'; }
+
   chat({ chatCtx, connOptions }: { chatCtx: llm.ChatContext, connOptions: any }): llm.LLMStream {
-    return new AnthropicLLMStream(this, chatCtx, connOptions);
+    return new AnthropicLLMStream(this, chatCtx, connOptions ?? {}, this.onToken);
   }
 }
 
@@ -108,19 +127,21 @@ const agentDef = defineAgent({
 
     const tts = new cartesia.TTS({ 
       apiKey: process.env.CARTESIA_API_KEY!,
-      voice: "694f9ed8-eaee-4f51-a9f4-539420042cd0" 
+      voice: "e4d5f4c4-6601-4779-bee1-b3c14d629dc6" 
     });
     const stt = new deepgram.STT({ 
       apiKey: process.env.DEEPGRAM_API_KEY!
     });
-    const llm_engine = new AnthropicLLM();
-    const vad = vadModel;
-
-    const chatCtx = new llm.ChatContext();
-    chatCtx.addMessage({
-      role: 'system',
-      content: systemPrompt,
+    
+    // Create LLM with direct feedback to the room via data channel
+    const llm_engine = new AnthropicLLM((token) => {
+      ctx.room.localParticipant?.publishData(
+        new TextEncoder().encode(JSON.stringify({ text: token, final: false })),
+        { topic: 'agent-transcript' }
+      ).catch(() => {});
     });
+
+    const vad = vadModel;
 
     const agent = new voice.Agent({
       instructions: systemPrompt,
@@ -128,14 +149,13 @@ const agentDef = defineAgent({
       tts,
       stt,
       vad,
-      chatCtx,
     });
 
     const session = new voice.AgentSession({
-        stt,
-        tts,
-        llm: llm_engine,
-        vad,
+      stt,
+      tts,
+      llm: llm_engine,
+      vad,
     });
 
     session.on(voice.AgentSessionEventTypes.AgentStateChanged, (ev: any) => console.log('[Agent] State:', ev.state));
@@ -143,8 +163,12 @@ const agentDef = defineAgent({
 
     console.log('[Agent] Starting session...');
     try {
-      await session.start({ agent, room: ctx.room });
-      console.log('[Agent] Session started');
+      await session.start({ 
+        agent, 
+        room: ctx.room,
+        outputOptions: { transcriptionEnabled: true } 
+      });
+      console.log('[Agent] Session started → listening');
     } catch (err) {
       console.error('[Agent] Failed to start session:', err);
       return;
@@ -153,7 +177,8 @@ const agentDef = defineAgent({
     // Initial greeting
     await new Promise(resolve => setTimeout(resolve, 1000));
     try {
-      session.say("Hello. I'm Tera. How can I help you today?");
+      session.say("Hello! I'm Tera, your dental scheduling assistant. How can I help you today?");
+      console.log('[Agent] Greeting sent.');
     } catch (err) {
       console.error('[Agent] Greeting failed:', err);
     }
@@ -163,8 +188,9 @@ const agentDef = defineAgent({
 export default agentDef;
 
 preload().then(() => {
-    cli.runApp(new WorkerOptions({ 
-      agent: path.resolve(__filename),
-      wsURL: process.env.LIVEKIT_URL || "wss://shell-poc-45149qll.livekit.cloud",
-    }));
+  cli.runApp(new WorkerOptions({
+    agent: path.resolve(__filename),
+    wsURL: process.env.LIVEKIT_URL || "wss://shell-poc-45149qll.livekit.cloud",
+    agentName: "tera-dental-agent",
+  }));
 });

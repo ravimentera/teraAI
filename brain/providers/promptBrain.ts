@@ -15,12 +15,12 @@ export class PromptBrain implements BrainProvider {
 
   async *chat(userInput: string, context: ConversationContext): AsyncGenerator<string> {
     const messages: any[] = [
-      ...context.conversationHistory,
+      ...context.conversationHistory.filter(m => m.role !== 'system'),
       { role: "user", content: userInput }
     ];
 
     const stream = await this.anthropic.messages.create({
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-3-haiku-20240307",
       max_tokens: 1024,
       system: VOICE_PROMPT,
       messages,
