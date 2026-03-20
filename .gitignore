@@ -19,6 +19,7 @@ mentera-voice-platform-poc.html
 /.next
 out
 ARCHITECTURE.md
+ts_errors.txt
 
 # production
 /build
