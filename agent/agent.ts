@@ -78,10 +78,9 @@ class AnthropicLLMStream extends llm.LLMStream {
       for await (const chunk of brain.chat(lastUserMsg, { conversationHistory: messages.slice(0, -1) })) {
         if (!chunk || !chunk.trim()) continue;
         console.log("[Agent] Chunk:", chunk);
-        
+
         // Notify callback (for direct publish)
         this.onToken?.(chunk);
-
         (this as any).queue.put({
           id: crypto.randomUUID(),
           delta: { content: chunk, role: 'assistant' }
@@ -132,13 +131,13 @@ const agentDef = defineAgent({
     const stt = new deepgram.STT({ 
       apiKey: process.env.DEEPGRAM_API_KEY!
     });
-    
+
     // Create LLM with direct feedback to the room via data channel
     const llm_engine = new AnthropicLLM((token) => {
       ctx.room.localParticipant?.publishData(
         new TextEncoder().encode(JSON.stringify({ text: token, final: false })),
         { topic: 'agent-transcript' }
-      ).catch(() => {});
+      ).catch(() => { });
     });
 
     const vad = vadModel;
@@ -163,10 +162,10 @@ const agentDef = defineAgent({
 
     console.log('[Agent] Starting session...');
     try {
-      await session.start({ 
-        agent, 
+      await session.start({
+        agent,
         room: ctx.room,
-        outputOptions: { transcriptionEnabled: true } 
+        outputOptions: { transcriptionEnabled: true }
       });
       console.log('[Agent] Session started → listening');
     } catch (err) {
