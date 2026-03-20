@@ -5,8 +5,8 @@ import {
 } from "livekit-server-sdk";
 import { NextResponse } from "next/server";
 
-const API_KEY = process.env.NEXT_PUBLIC_LIVEKIT_API_KEY;
-const API_SECRET = process.env.NEXT_PUBLIC_LIVEKIT_API_SECRET;
+const API_KEY = process.env.LIVEKIT_API_KEY;
+const API_SECRET = process.env.LIVEKIT_API_SECRET;
 const LIVEKIT_URL = process.env.NEXT_PUBLIC_LIVEKIT_URL;
 
 export type ConnectionDetails = {
@@ -27,8 +27,8 @@ export async function GET() {
     }
 
     // Generate participant token
-    const participantIdentity = `voice_assistant_user_${Math.floor(Math.random() * 10_000)}`;
-    const roomName = `voice_assistant_room_${Math.floor(Math.random() * 10_000)}`;
+    const participantIdentity = `user_${Math.floor(Math.random() * 10_000)}`;
+    const roomName = "mentera-voice-poc";
     const participantToken = await createParticipantToken(
       { identity: participantIdentity },
       roomName,
@@ -39,6 +39,7 @@ export async function GET() {
       identity: participantIdentity,
       accessToken: participantToken,
     };
+    console.log('[DEBUG-SERVER] Token generated for room:', roomName, 'identity:', participantIdentity);
     return NextResponse.json(data);
   } catch (error) {
     if (error instanceof Error) {

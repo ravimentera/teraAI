@@ -9,13 +9,17 @@
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
+/agent/node_modules
 
 # testing
 /coverage
+mentera-voice-platform-poc.html
 
 # next.js
-/.next/
-/out/
+/.next
+out
+ARCHITECTURE.md
+ts_errors.txt
 
 # production
 /build
