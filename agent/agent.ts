@@ -109,14 +109,14 @@ class AnthropicLLM extends llm.LLM {
 const agentDef = defineAgent({
   entry: async (ctx) => {
     console.log('[Job] Starting entry (Job ID):', ctx.job.id);
-    
+
     if (!systemPrompt || !vadModel) {
-        console.log('[Agent] Resources not ready, waiting...');
-        await preload();
+      console.log('[Agent] Resources not ready, waiting...');
+      await preload();
     }
 
     try {
-      console.log('[Agent] Connecting to room...');
+      console.log('[Agent] Connecting to room....');
       await ctx.connect();
       console.log('[Agent] Connected to room:', ctx.room.name);
     } catch (err) {
@@ -124,11 +124,11 @@ const agentDef = defineAgent({
       return;
     }
 
-    const tts = new cartesia.TTS({ 
+    const tts = new cartesia.TTS({
       apiKey: process.env.CARTESIA_API_KEY!,
-      voice: "e4d5f4c4-6601-4779-bee1-b3c14d629dc6" 
+      voice: "e4d5f4c4-6601-4779-bee1-b3c14d629dc6"
     });
-    const stt = new deepgram.STT({ 
+    const stt = new deepgram.STT({
       apiKey: process.env.DEEPGRAM_API_KEY!
     });
 
