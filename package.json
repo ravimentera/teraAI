@@ -1,0 +1,38 @@
+{
+  "name": "voice-shell",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"pnpm run dev:root\" \"pnpm run dev:agent\"",
+    "dev:root": "next dev",
+    "dev:agent": "cd agent && npm run dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.79.0",
+    "@livekit/components-react": "^2.9.20",
+    "@livekit/components-styles": "^1.2.0",
+    "@livekit/krisp-noise-filter": "^0.4.1",
+    "framer-motion": "^12.38.0",
+    "livekit-client": "^2.17.3",
+    "livekit-server-sdk": "^2.15.0",
+    "lucide-react": "^0.577.0",
+    "next": "16.1.7",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "concurrently": "^9.2.1",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.7",
+    "tailwindcss": "^4",
+    "typescript": "^5.9.3"
+  }
+}
