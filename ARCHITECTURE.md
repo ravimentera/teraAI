@@ -1,71 +1,90 @@
-# Mentera Voice Platform POC Architecture
+# 🏗️ Tera AI: System Architecture
 
-This document outlines the modular architecture of the Mentera Voice Platform Proof of Concept (Phase 1).
+This document describes the technical architecture of the Tera AI platform, a modular "Brain + Shell" system designed for high-performance voice interaction in dental practices.
 
-## 🏗️ Overall Architecture
+---
 
-The system follows a modular "Brain + Shell" design, separating the AI logic from the user interface and voice processing pipeline.
+## 🏗️ High-Level Architecture
+
+The system is split into two primary domains: the **Shell** (Next.js Frontend) and the **Brain** (Node.js Agent + LLM). They communicate via **LiveKit**, which manages the real-time audio and data streams.
 
 ```mermaid
 graph TD
-    User((User)) <--> Frontend[Next.js Voice Shell]
-    Frontend <--> LiveKit[LiveKit Cloud]
-    LiveKit <--> Agent[Node.js Voice Agent]
+    User((User)) <--> |Audio/Data| Shell[Next.js Voice Shell]
+    Shell <--> |WebRTC| LK[LiveKit Cloud/Self-Hosted]
+    LK <--> |WebRTC| Agent[Node.js Voice Agent]
     
-    subgraph Agent Backend
-        Agent -- STT --> Deepgram
-        Agent -- LLM --> Anthropic[Anthropic Claude]
-        Agent -- TTS --> Cartesia
+    subgraph "Brain Layer (Agent Backend)"
+        Agent --> |STT| Deepgram[Deepgram Nova-2]
+        Agent --> |Context| Brain[Brain Provider]
+        Brain --> |LLM| Anthropic[Claude 3.5 Sonnet]
+        Agent --> |TTS| Cartesia[Cartesia Sonic]
     end
     
-    subgraph Brain Layer
-        Anthropic <--> PromptBrain[Brain Provider]
-        PromptBrain <--> TeraPrompt[System Prompt]
+    subgraph "Frontend Layer (Shell)"
+        Shell --> |Visualization| Orb[Animated Voice Orb]
+        Shell --> |Feedback| Transcript[Real-time Transcription]
     end
 ```
 
-## 🛠️ Global Technology Stack
+---
 
-| Layer | Service | Purpose |
-| :--- | :--- | :--- |
-| **Connection** | [LiveKit](https://livekit.io) | Core RTC engine for room management and real-time audio/data streaming. |
-| **STT** | [Deepgram](https://deepgram.com) | High-speed, low-latency Speech-to-Text for transcribing user input. |
-| **TTS** | [Cartesia](https://cartesia.ai) | Ultra-premium, low-latency Text-to-Speech for Tera's voice output. |
-| **LLM (Brain)** | [Anthropic](https://anthropic.com) | Claude 3.5 Sonnet / Haiku for conversational intelligence and dental scheduling logic. |
-| **Frontend** | [Next.js](https://nextjs.org) | Premium React-based voice UI with animated orbs and live transcriptions. |
-| **Agent Framework** | [@livekit/agents](https://github.com/livekit/agents-node) | Orchestration layer for the voice pipeline. |
+## 📡 The "Brain + Shell" Philosophy
 
-## 🧠 Brain Implementation
-The "Brain" is abstracted via the `BrainProvider` interface (see `brain/types.ts`). This allows us to swap the underlying LLM or logic without touching the Voice Shell or Agent code.
+1.  **The Shell (Frontend)**:
+    - **Responsibility**: User Interface, microphone/speaker management, and visual feedback.
+    - **Key Components**: 
+        - `VoiceShell`: Orchestrates the LiveKit room session.
+        - `VoiceOrb`: A Framer Motion-powered visualizer that reacts to agent states (idle, listening, thinking, speaking).
+        - `TranscriptPanel`: Displays turn-based transcriptions for both the user and the agent.
+    - **Transcription Sync**: The shell uses `useTrackTranscription` to display STT results and also listens to a `agent-transcript` data channel for early LLM token feedback.
 
-- **Tera System Prompt**: Located in `brain/prompt.ts`, containing the core dental assistant personality and scheduling rules.
-- **Voice Optimization**: We use a specific `VOICE_PROMPT` to ensure Claude speaks in short, conversational sentences suitable for TTS, avoiding markdown and dense tables.
+2.  **The Brain (Agent)**:
+    - **Responsibility**: Orchestrating the voice pipeline (Ear -> Mind -> Mouth).
+    - **Key Components**:
+        - `AnthropicLLM`: A custom implementation of the LiveKit Agents `LLM` class that integrates with our internal `BrainProvider`.
+        - `VAD (Voice Activity Detection)`: Uses Silero VAD to accurately detect when the user starts and stops speaking.
+        - `Streaming Pipeline`: Processes audio in chunks to ensure sub-second latency.
 
-## 📡 LiveKit Integration
-- **Frontend**: Uses `LiveKitRoom` and the `useVoiceAssistant` hook to connect to the room and interact with the agent.
-- **Backend Agent**: Runs as a standalone Node.js process. It listens for room events from LiveKit Cloud and automatically joins to start the voice pipeline when a participant enters.
+---
 
-## 🚀 Running the Project
+## 🎙️ The Voice Pipeline (Detailed)
 
-During development, you must run both the frontend and the agent backend simultaneously in separate terminal windows.
+The agent implements a sophisticated pipeline to ensure natural conversation and high reliability:
 
-### 1. Start the Frontend Shell
-The shell provides the user interface and initiates the LiveKit connection.
-```bash
-pnpm dev
-```
+1.  **VAD (Silero)**: Constantly monitors the audio stream. When speech is detected, it triggers the STT and pauses any current agent speech (interruptibility).
+2.  **STT (Deepgram)**: Transcribes user audio into text in real-time.
+3.  **LLM (Anthropic + Custom Filtering)**:
+    - The `AnthropicLLMStream` class handles the streaming response from Claude.
+    - **Filter Logic**: A custom alphanumeric filter removes chunks containing only punctuation or markdown artifacts (e.g., `*`, `[`, `]`) before they reach the TTS engine. This prevents "empty transcript" errors in Cartesia.
+    - **Buffering**: Punctuation is buffered and prepended to the next alphanumeric chunk for natural prosody.
+4.  **TTS (Cartesia)**: Converts the filtered LLM text into high-quality audio.
+5.  **Data Channel**: While the agent speaks, it simultaneously publishes tokens to the `agent-transcript` topic on the LiveKit data channel, allowing the UI to show what Tera is saying *before* the audio finishes.
 
-### 2. Start the Voice Agent Backend
-The agent handles the STT/LLM/TTS pipeline. Run this from the project root in a second terminal:
-```bash
-cd agent
-npm run dev
-```
+---
 
-## 🔐 Environment Variables
-Required in `.env.local`:
-- `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`
-- `NEXT_PUBLIC_LIVEKIT_URL`
-- `DEEPGRAM_API_KEY`
-- `CARTESIA_API_KEY`
-- `ANTHROPIC_API_KEY`
+## 🧠 Intelligence Layer
+
+The `brain/` directory encapsulates the system's "personality" and logic:
+
+- **`PromptBrain`**: The current implementation that uses static and dynamic prompts defined in `brain/prompt.ts`.
+- **System Prompts**: 
+    - `VOICE_PROMPT`: Optimized for spoken language (short sentences, no lists, emotional mirroring).
+    - `DEFAULT_PROMPT`: Contains the core business logic, security boundaries, and demo data patterns for the dental/medical spa context.
+- **Provider Pattern**: The architecture is designed to support multiple "brains" (e.g., swapping Claude for a RAG-based Bedrock Knowledge Base) by implementing the `BrainProvider` interface.
+
+---
+
+## 🛠️ Infrastructure & Deployment
+
+- **LiveKit**: Acts as the central nervous system. The agent connects to LiveKit as a "Worker" and joins rooms dynamically when users connect.
+- **Concurrency**: The project uses `concurrently` during development to run both the Next.js server and the Node.js agent.
+- **Environment Management**: Secrets are managed via `.env` files, separated by the frontend (`.env.local`) and the agent backend (`agent/.env`).
+
+---
+
+## 🔐 Reliability & Safety
+
+- **Resource Pre-loading**: The agent pre-loads the Silero VAD model and the system prompt on startup to avoid late-join timeouts.
+- **Fallback Mechanisms**: If the LLM connection fails or is overloaded, the agent sends a pre-defined "trouble connecting" message to maintain user experience.
+- **Security Boundaries**: System prompts include strict instructions to prevent prompt injection and character-breaking.
