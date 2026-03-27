@@ -15,7 +15,7 @@ import path from 'path';
 import { createBrainProvider } from '../brain';
 
 // Load env vars
-dotenv.config({ path: path.join(__dirname, '../.env.local') });
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 // Explicitly set LIVEKIT_URL for the CLI/Worker
 if (process.env.NEXT_PUBLIC_LIVEKIT_URL) {
