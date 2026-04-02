@@ -26,7 +26,8 @@ console.log('[Agent] Mode: CommonJS / Refactored');
 console.log('[Agent] Target URL:', process.env.LIVEKIT_URL);
 
 // Globals to be pre-loaded
-const brain = createBrainProvider('tera-dental');
+const brainProfile = process.env.BRAIN_PROFILE || 'tera-dental';
+const brain = createBrainProvider(brainProfile);
 let systemPrompt = "";
 let vadModel: any = null;
 
