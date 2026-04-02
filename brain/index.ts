@@ -16,6 +16,7 @@ export function createBrainProvider(configKey: string): BrainProvider {
   const config = getBrainConfig(configKey);
   
   if (config.type === "prompt-brain") {
+    console.log("using system prompt")
     // POC: uses Anthropic + voice prompt
     return new PromptBrain();
   }
