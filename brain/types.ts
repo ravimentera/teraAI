@@ -51,9 +51,4 @@ export const BRAIN_REGISTRY: Record<string, BrainConfig> = {
     name: "Tera Dental (POC)",
     description: "Claude-powered Tera assistant using prompt.ts brain",
   },
-  "tera-aws-kb": {
-    type: "bedrock-kb",
-    name: "Tera AWS Knowledge Base",
-    description: "AWS Bedrock KB provider (credentials required)",
-  },
 };

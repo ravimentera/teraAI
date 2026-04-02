@@ -26,9 +26,9 @@ console.log('[Agent] Mode: CommonJS / Refactored');
 console.log('[Agent] Target URL:', process.env.LIVEKIT_URL);
 
 // Globals to be pre-loaded
-const brainProfile = process.env.BRAIN_PROFILE || 'tera-dental';
-const brain = createBrainProvider(brainProfile);
+const brain = createBrainProvider('tera-dental');
 let systemPrompt = "";
+let vadModel: any = null;
 
 // Pre-load logic to avoid job-entry timeouts
 async function preload() {
@@ -36,6 +36,9 @@ async function preload() {
     console.log('[Agent] Pre-loading system prompt...');
     systemPrompt = await brain.getSystemPrompt();
     console.log('[Agent] System prompt length:', systemPrompt.length);
+    console.log('[Agent] Pre-loading Silero VAD...');
+    vadModel = await silero.VAD.load();
+    console.log('[Agent] VAD Model Loaded');
     console.log('[Agent] Pre-load complete.');
   } catch (err) {
     console.error('[Agent] Pre-load failed:', err);
@@ -163,7 +166,7 @@ const agentDef = defineAgent({
   entry: async (ctx) => {
     console.log('[Job] Starting entry (Job ID):', ctx.job.id);
     
-    if (!systemPrompt) {
+    if (!systemPrompt || !vadModel) {
         console.log('[Agent] Resources not ready, waiting...');
         await preload();
     }
@@ -193,8 +196,7 @@ const agentDef = defineAgent({
       ).catch(() => {});
     });
 
-    console.log('[Agent] Loading Silero VAD for this job...');
-    const vad = await silero.VAD.load();
+    const vad = vadModel;
 
     const agent = new voice.Agent({
       instructions: systemPrompt,
